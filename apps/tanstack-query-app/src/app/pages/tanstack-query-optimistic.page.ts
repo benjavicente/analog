@@ -1,4 +1,3 @@
-import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,15 +11,17 @@ import {
   QueryClient,
   injectMutation,
   injectQuery,
-} from '@tanstack/angular-query-experimental';
-import {
-  serverQueryOptions,
-  serverMutationOptions,
-} from '@analogjs/router/tanstack-query';
+  mutationOptions,
+  queryOptions,
+} from '@benjavicente/angular-query-experimental';
+import { injectServerAction } from '@analogjs/router/server/actions';
 
 import type { route as commentsQueryRoute } from '../../server/routes/api/v1/query-comments.get';
 import type { route as commentsMutationRoute } from '../../server/routes/api/v1/query-comments.post';
-import type { InferRouteResult } from '@analogjs/router/server/actions';
+import type {
+  InferRouteBody,
+  InferRouteResult,
+} from '@analogjs/router/server/actions';
 
 type CommentsData = InferRouteResult<typeof commentsQueryRoute>;
 
@@ -185,12 +186,17 @@ function getIssueMessage(error: unknown): string {
   `,
 })
 export default class TanStackQueryOptimisticPageComponent {
-  private readonly http = inject(HttpClient);
   private readonly queryClient = inject(QueryClient);
   private readonly activatedRoute = inject(ActivatedRoute);
   private readonly queryParamMap = toSignal(this.activatedRoute.queryParamMap, {
     initialValue: this.activatedRoute.snapshot.queryParamMap,
   });
+  private readonly fetchComments = injectServerAction<
+    typeof commentsQueryRoute
+  >('/api/v1/query-comments');
+  private readonly createComment = injectServerAction<
+    typeof commentsMutationRoute
+  >('/api/v1/query-comments', { method: 'POST' });
 
   readonly scope = computed(
     () => this.queryParamMap().get('scope') ?? 'default',
@@ -204,72 +210,68 @@ export default class TanStackQueryOptimisticPageComponent {
   );
 
   readonly commentsQuery = injectQuery(() =>
-    serverQueryOptions<typeof commentsQueryRoute>(
-      this.http,
-      '/api/v1/query-comments',
-      {
-        queryKey: this.queryKey(),
-        query: { scope: this.scope(), cursor: 0, limit: 10 },
-        staleTime: 60_000,
-      },
-    ),
+    queryOptions({
+      queryKey: this.queryKey(),
+      queryFn: () =>
+        this.fetchComments({
+          params: { scope: this.scope(), cursor: 0, limit: 10 },
+        }),
+      staleTime: 60_000,
+    }),
   );
 
   readonly createCommentMutation = injectMutation(() =>
-    serverMutationOptions<typeof commentsMutationRoute>(
-      this.http,
-      '/api/v1/query-comments',
-      {
-        onMutate: async (variables) => {
-          this.mutationError.set('');
-          this.rolledBack.set(false);
-          this.optimisticApplied.set(true);
+    mutationOptions({
+      mutationFn: (body: InferRouteBody<typeof commentsMutationRoute>) =>
+        this.createComment({ body }),
+      onMutate: async (variables) => {
+        this.mutationError.set('');
+        this.rolledBack.set(false);
+        this.optimisticApplied.set(true);
 
-          const pinnedKey = this.queryKey();
+        const pinnedKey = this.queryKey();
 
-          await this.queryClient.cancelQueries({ queryKey: pinnedKey });
+        await this.queryClient.cancelQueries({ queryKey: pinnedKey });
 
-          const snapshot =
-            this.queryClient.getQueryData<CommentsData>(pinnedKey);
+        const snapshot = this.queryClient.getQueryData<CommentsData>(pinnedKey);
 
-          this.queryClient.setQueryData<CommentsData>(pinnedKey, (old) => {
-            if (!old) return old;
-            return {
-              ...old,
-              items: [
-                ...old.items,
-                {
-                  id: `optimistic-${Date.now()}`,
-                  text: variables.text,
-                  optimistic: true,
-                },
-              ],
-            };
-          });
+        this.queryClient.setQueryData<CommentsData>(pinnedKey, (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            items: [
+              ...old.items,
+              {
+                id: `optimistic-${Date.now()}`,
+                text: variables.text,
+                optimistic: true,
+              },
+            ],
+          };
+        });
 
-          return { snapshot, pinnedKey };
-        },
-        onError: (error, _variables, context) => {
-          const ctx = context as
-            | {
-                snapshot: CommentsData | undefined;
-                pinnedKey: readonly string[];
-              }
-            | undefined;
-          if (ctx?.snapshot) {
-            this.queryClient.setQueryData(ctx.pinnedKey, ctx.snapshot);
-          }
-          this.mutationError.set(getIssueMessage(error));
-          this.rolledBack.set(true);
-        },
-        onSettled: (_data, _error, _variables, context) => {
-          const ctx = context as { pinnedKey: readonly string[] } | undefined;
-          return this.queryClient.invalidateQueries({
-            queryKey: ctx?.pinnedKey ?? this.queryKey(),
-          });
-        },
+        return { snapshot, pinnedKey };
       },
-    ),
+      onError: (error, _variables, context) => {
+        const ctx = context as
+          | {
+              snapshot: CommentsData | undefined;
+              pinnedKey: readonly string[];
+            }
+          | undefined;
+        if (ctx?.snapshot) {
+          this.queryClient.setQueryData(ctx.pinnedKey, ctx.snapshot);
+        }
+        this.mutationError.set(getIssueMessage(error));
+        this.rolledBack.set(true);
+      },
+      onSettled: (_data, _error, _variables, context) => {
+        const ctx = context as { pinnedKey: readonly string[] } | undefined;
+        return this.queryClient.invalidateQueries({
+          queryKey: ctx?.pinnedKey ?? this.queryKey(),
+        });
+      },
+    }),
   );
 
   readonly fetchCount = computed(

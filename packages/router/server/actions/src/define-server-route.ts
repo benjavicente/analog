@@ -1,6 +1,9 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import { HttpClient } from '@angular/common/http';
+import { inject } from '@angular/core';
 import type { H3Event } from 'nitro/h3';
 import { getRequestURL } from 'nitro/h3';
+import { lastValueFrom } from 'rxjs';
 import { fail, json } from './actions';
 import { parseRequestData, parseSearchParams } from './parse-request-data';
 import { validateWithSchema } from './validate';
@@ -28,6 +31,18 @@ export type InferRouteResult<T> =
   T extends ServerRouteHandler<any, any, infer R>
     ? Exclude<R, Response>
     : never;
+export interface ServerRouteRequestOptions<
+  TRoute extends ServerRouteHandler<any, any, any>,
+> {
+  method?: string;
+}
+
+export interface ServerRouteRequestArgs<
+  TRoute extends ServerRouteHandler<any, any, any>,
+> {
+  params?: InferRouteQuery<TRoute>;
+  body?: InferRouteBody<TRoute>;
+}
 
 type OptionalSchema = StandardSchemaV1 | undefined;
 type InferSchema<
@@ -81,6 +96,29 @@ export interface DefineServerRouteOptions<
   handler: (
     context: DefineServerRouteContext<TInput, TQuery, TBody, TParams>,
   ) => Promise<TResult> | TResult;
+}
+
+function buildUrl(base: string, params?: Record<string, unknown>): string {
+  if (!params) return base;
+  const parts: string[] = [];
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+
+    const encodedKey = encodeURIComponent(key);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        parts.push(`${encodedKey}=${encodeURIComponent(String(item))}`);
+      }
+    } else {
+      parts.push(`${encodedKey}=${encodeURIComponent(String(value))}`);
+    }
+  }
+
+  if (parts.length === 0) return base;
+
+  return `${base}${base.includes('?') ? '&' : '?'}${parts.join('&')}`;
 }
 
 function isDevEnvironment() {
@@ -247,4 +285,29 @@ export function defineServerRoute<
     InferSchema<TBody, undefined>,
     TResult
   >;
+}
+
+export function injectServerAction<
+  TRoute extends ServerRouteHandler<any, any, any>,
+>(
+  url: string,
+  options?: ServerRouteRequestOptions<TRoute>,
+): (
+  args?: ServerRouteRequestArgs<TRoute>,
+) => Promise<InferRouteResult<TRoute>> {
+  const http = inject(HttpClient);
+  const method = options?.method ?? 'GET';
+
+  return (args?: ServerRouteRequestArgs<TRoute>) => {
+    const requestUrl = buildUrl(
+      url,
+      args?.params as Record<string, unknown> | undefined,
+    );
+
+    return lastValueFrom(
+      http.request<InferRouteResult<TRoute>>(method, requestUrl, {
+        body: args?.body,
+      }),
+    );
+  };
 }

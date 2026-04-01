@@ -1,5 +1,4 @@
 import { DOCUMENT } from '@angular/common';
-import { inject } from '@angular/core';
 import { ActivatedRouteSnapshot, NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs/operators';
 
@@ -53,10 +52,10 @@ export const ROUTE_JSON_LD_KEY: unique symbol = Symbol(
 );
 const JSON_LD_SCRIPT_SELECTOR = 'script[data-analog-json-ld]';
 
-export function updateJsonLdOnRouteChange(): void {
-  const router = inject(Router);
-  const document = inject(DOCUMENT);
-
+export function updateJsonLdOnRouteChange(
+  router: Router,
+  document: Document,
+): void {
   router.events
     .pipe(filter((event) => event instanceof NavigationEnd))
     .subscribe(() => {

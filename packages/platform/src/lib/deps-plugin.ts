@@ -2,17 +2,15 @@ import { VERSION } from '@angular/compiler-cli';
 import type { Plugin } from 'vite';
 import { crawlFrameworkPkgs } from 'vitefu';
 
-import { Options } from './options.js';
+import type { Options } from './options.js';
 import { getJsTransformConfigKey } from './utils/rolldown.js';
 
 export function depsPlugin(options?: Options): Plugin[] {
-  const workspaceRoot =
-    options?.workspaceRoot ?? process.env['NX_WORKSPACE_ROOT'] ?? process.cwd();
+  const workspaceRoot = options?.workspaceRoot ?? process.cwd();
   const viteOptions = options?.vite === false ? undefined : options?.vite;
 
   return [
     {
-      name: 'analogjs-deps-plugin',
       config() {
         const useAngularCompilationAPI =
           options?.experimental?.useAngularCompilationAPI ??
@@ -33,18 +31,10 @@ export function depsPlugin(options?: Options): Plugin[] {
               'rxfire',
               '@ng-web-apis/**',
               '@taiga-ui/**',
-              '@tanstack/angular-query-experimental',
+              '@benjavicente/angular-query-experimental',
             ],
           },
           optimizeDeps: {
-            include: [
-              '@angular/common',
-              '@angular/common/http',
-              ...(Number(VERSION.major) > 15
-                ? ['@angular/core/rxjs-interop']
-                : []),
-              'front-matter',
-            ],
             exclude: [
               '@angular/platform-server',
               '@analogjs/content',
@@ -68,23 +58,32 @@ export function depsPlugin(options?: Options): Plugin[] {
               'fsevents',
               'nx',
             ],
+            include: [
+              '@angular/common',
+              '@angular/common/http',
+              ...(Number(VERSION.major) > 15
+                ? ['@angular/core/rxjs-interop']
+                : []),
+              'front-matter',
+            ],
           },
         };
       },
+      name: 'analogjs-deps-plugin',
     },
     {
-      name: 'analogjs-auto-discover-deps',
       async config(config, { command }) {
         const pkgConfig = await crawlFrameworkPkgs({
-          root: workspaceRoot,
           isBuild: command === 'build',
-          viteUserConfig: config,
           isSemiFrameworkPkgByJson(pkgJson) {
             return pkgJson['module'] && pkgJson['module'].includes('fesm');
           },
+          root: workspaceRoot,
+          viteUserConfig: config,
         });
         return pkgConfig;
       },
+      name: 'analogjs-auto-discover-deps',
     },
   ];
 }

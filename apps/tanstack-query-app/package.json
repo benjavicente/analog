@@ -3,7 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "dependencies": {
-    "@analogjs/router": "workspace:*"
+    "@analogjs/router": "workspace:*",
+    "@benjavicente/angular-query-experimental": "5.96.1"
   },
   "devDependencies": {
     "@analogjs/platform": "workspace:*",
