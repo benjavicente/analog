@@ -1,11 +1,15 @@
 import {
-  ENVIRONMENT_INITIALIZER,
+  APP_BOOTSTRAP_LISTENER,
   EnvironmentProviders,
-  inject,
+  Optional,
   makeEnvironmentProviders,
 } from '@angular/core';
 import { ɵHTTP_ROOT_INTERCEPTOR_FNS as HTTP_ROOT_INTERCEPTOR_FNS } from '@angular/common/http';
+import { Meta } from '@angular/platform-browser';
 import { provideRouter, RouterFeatures, ROUTES, Routes } from '@angular/router';
+import { DOCUMENT } from '@angular/common';
+import { Router } from '@angular/router';
+import { inject } from '@angular/core';
 import { API_PREFIX } from '@analogjs/router/tokens';
 
 import { cookieInterceptor } from './cookie-interceptor';
@@ -116,14 +120,28 @@ export function provideFileRouterWithRoutes(
       },
     },
     {
-      provide: ENVIRONMENT_INITIALIZER,
+      provide: APP_BOOTSTRAP_LISTENER,
       multi: true,
-      useValue: () => updateMetaTagsOnRouteChange(),
+      useFactory: (router: Router, meta: Meta) => {
+        return () => {
+          updateMetaTagsOnRouteChange(router, meta);
+        };
+      },
+      deps: [Router, Meta],
     },
     {
-      provide: ENVIRONMENT_INITIALIZER,
+      provide: APP_BOOTSTRAP_LISTENER,
       multi: true,
-      useValue: () => updateJsonLdOnRouteChange(),
+      useFactory: (router: Router, document: Document | null) => {
+        return () => {
+          if (!document) {
+            return;
+          }
+
+          updateJsonLdOnRouteChange(router, document);
+        };
+      },
+      deps: [Router, [new Optional(), DOCUMENT]],
     },
     {
       provide: HTTP_ROOT_INTERCEPTOR_FNS,

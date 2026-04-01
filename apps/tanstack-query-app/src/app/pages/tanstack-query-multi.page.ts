@@ -1,4 +1,3 @@
-import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -7,8 +6,11 @@ import {
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { injectQuery } from '@tanstack/angular-query-experimental';
-import { serverQueryOptions } from '@analogjs/router/tanstack-query';
+import {
+  injectQuery,
+  queryOptions,
+} from '@benjavicente/angular-query-experimental';
+import { injectServerAction } from '@analogjs/router/server/actions';
 
 import type { route } from '../../server/routes/api/v1/query-posts';
 
@@ -170,28 +172,44 @@ import type { route } from '../../server/routes/api/v1/query-posts';
   `,
 })
 export default class TanStackQueryMultiPageComponent {
-  private readonly http = inject(HttpClient);
   private readonly activatedRoute = inject(ActivatedRoute);
   private readonly queryParamMap = toSignal(this.activatedRoute.queryParamMap, {
     initialValue: this.activatedRoute.snapshot.queryParamMap,
   });
+  private readonly fetchPosts = injectServerAction<typeof route>(
+    '/api/v1/query-posts',
+  );
 
   readonly scope = computed(
     () => this.queryParamMap().get('scope') ?? 'default',
   );
 
   readonly postsQuery = injectQuery(() =>
-    serverQueryOptions<typeof route>(this.http, '/api/v1/query-posts', {
+    queryOptions({
       queryKey: ['posts-list', this.scope()] as const,
-      query: { scope: this.scope(), postId: '', author: '' },
+      queryFn: () =>
+        this.fetchPosts({
+          params: {
+            scope: this.scope(),
+            postId: '',
+            author: '',
+          },
+        }),
       staleTime: 60_000,
     }),
   );
 
   readonly featuredPostQuery = injectQuery(() =>
-    serverQueryOptions<typeof route>(this.http, '/api/v1/query-posts', {
+    queryOptions({
       queryKey: ['post-detail', this.scope(), '1'] as const,
-      query: { scope: this.scope(), postId: '1', author: '' },
+      queryFn: () =>
+        this.fetchPosts({
+          params: {
+            scope: this.scope(),
+            postId: '1',
+            author: '',
+          },
+        }),
       staleTime: 60_000,
     }),
   );
@@ -203,9 +221,16 @@ export default class TanStackQueryMultiPageComponent {
   readonly authorPostsQuery = injectQuery(() => {
     const author = this.featuredAuthor();
     return {
-      ...serverQueryOptions<typeof route>(this.http, '/api/v1/query-posts', {
+      ...queryOptions({
         queryKey: ['author-posts', this.scope(), author] as const,
-        query: { scope: this.scope(), postId: '', author },
+        queryFn: () =>
+          this.fetchPosts({
+            params: {
+              scope: this.scope(),
+              postId: '',
+              author,
+            },
+          }),
         staleTime: 60_000,
       }),
       enabled: author.length > 0,

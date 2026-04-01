@@ -1,4 +1,3 @@
-import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,11 +11,11 @@ import {
   QueryClient,
   injectMutation,
   injectQuery,
-} from '@tanstack/angular-query-experimental';
-import {
-  serverQueryOptions,
-  serverMutationOptions,
-} from '@analogjs/router/tanstack-query';
+  mutationOptions,
+  queryOptions,
+} from '@benjavicente/angular-query-experimental';
+import { injectServerAction } from '@analogjs/router/server/actions';
+import type { InferRouteBody } from '@analogjs/router/server/actions';
 
 import type { route as todosQueryRoute } from '../../server/routes/api/v1/query-todos.get';
 import type { route as todosMutationRoute } from '../../server/routes/api/v1/query-todos.post';
@@ -136,7 +135,7 @@ function getIssueMessage(error: unknown): string {
                 id="add-todo"
                 type="button"
                 class="btn btn-primary"
-                (click)="createTodo('Ship query support')"
+                (click)="addTodo('Ship query support')"
               >
                 Add Todo
               </button>
@@ -144,7 +143,7 @@ function getIssueMessage(error: unknown): string {
                 id="add-empty-todo"
                 type="button"
                 class="btn btn-outline btn-error"
-                (click)="createTodo('')"
+                (click)="addTodo('')"
               >
                 Add Empty Todo
               </button>
@@ -169,12 +168,18 @@ function getIssueMessage(error: unknown): string {
   `,
 })
 export default class TanStackQueryPageComponent {
-  private readonly http = inject(HttpClient);
   private readonly queryClient = inject(QueryClient);
   private readonly route = inject(ActivatedRoute);
   private readonly queryParamMap = toSignal(this.route.queryParamMap, {
     initialValue: this.route.snapshot.queryParamMap,
   });
+  private readonly fetchTodos = injectServerAction<typeof todosQueryRoute>(
+    '/api/v1/query-todos',
+  );
+  private readonly createTodo = injectServerAction<typeof todosMutationRoute>(
+    '/api/v1/query-todos',
+    { method: 'POST' },
+  );
 
   readonly scope = computed(
     () => this.queryParamMap().get('scope') ?? 'default',
@@ -182,41 +187,35 @@ export default class TanStackQueryPageComponent {
   readonly mutationError = signal('');
 
   readonly todosQuery = injectQuery(() =>
-    serverQueryOptions<typeof todosQueryRoute>(
-      this.http,
-      '/api/v1/query-todos',
-      {
-        queryKey: ['analog-query-todos', this.scope()] as const,
-        query: { scope: this.scope() },
-        staleTime: 60_000,
-      },
-    ),
+    queryOptions({
+      queryKey: ['analog-query-todos', this.scope()] as const,
+      queryFn: () => this.fetchTodos({ params: { scope: this.scope() } }),
+      staleTime: 60_000,
+    }),
   );
 
   readonly createTodoMutation = injectMutation(() =>
-    serverMutationOptions<typeof todosMutationRoute>(
-      this.http,
-      '/api/v1/query-todos',
-      {
-        onMutate: () => {
-          this.mutationError.set('');
-        },
-        onSuccess: (_data, variables) => {
-          return this.queryClient.invalidateQueries({
-            queryKey: ['analog-query-todos', variables?.scope ?? this.scope()],
-          });
-        },
-        onError: (error) => {
-          this.mutationError.set(getIssueMessage(error));
-        },
+    mutationOptions({
+      mutationFn: (body: InferRouteBody<typeof todosMutationRoute>) =>
+        this.createTodo({ body }),
+      onMutate: () => {
+        this.mutationError.set('');
       },
-    ),
+      onSuccess: (_data, variables) => {
+        return this.queryClient.invalidateQueries({
+          queryKey: ['analog-query-todos', variables?.scope ?? this.scope()],
+        });
+      },
+      onError: (error) => {
+        this.mutationError.set(getIssueMessage(error));
+      },
+    }),
   );
 
   readonly fetchCount = computed(() => this.todosQuery.data()?.fetchCount ?? 0);
   readonly todos = computed(() => this.todosQuery.data()?.items ?? []);
 
-  createTodo(title: string) {
+  addTodo(title: string) {
     this.createTodoMutation.mutate({ scope: this.scope(), title });
   }
 }

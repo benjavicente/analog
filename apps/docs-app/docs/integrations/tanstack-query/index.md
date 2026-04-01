@@ -7,7 +7,7 @@ import TabItem from '@theme/TabItem';
 
 # TanStack Query Integration with Analog
 
-Analog provides a first-class [TanStack Query](https://tanstack.com/query/latest/docs/framework/angular/overview) integration for managing server state with SSR hydration support.
+Analog works well with [TanStack Query](https://tanstack.com/query/latest/docs/framework/angular/overview) when you use the Angular integration directly and call Analog server routes from typed query functions.
 
 Use route `load` functions when data should be resolved before the page component is created and the result is tied to navigation. Use TanStack Query when you need client-managed server state with query-key caching, invalidation, retries, or background refetching.
 
@@ -17,7 +17,7 @@ Use route `load` functions when data should be resolved before the page componen
   <TabItem value="npm">
 
 ```shell
-npm install @tanstack/angular-query-experimental
+npm install @benjavicente/angular-query-experimental
 ```
 
   </TabItem>
@@ -25,7 +25,7 @@ npm install @tanstack/angular-query-experimental
   <TabItem label="yarn" value="yarn">
 
 ```shell
-yarn add @tanstack/angular-query-experimental
+yarn add @benjavicente/angular-query-experimental
 ```
 
   </TabItem>
@@ -33,7 +33,7 @@ yarn add @tanstack/angular-query-experimental
   <TabItem value="pnpm">
 
 ```shell
-pnpm add @tanstack/angular-query-experimental
+pnpm add @benjavicente/angular-query-experimental
 ```
 
   </TabItem>
@@ -41,7 +41,7 @@ pnpm add @tanstack/angular-query-experimental
 
 ## Step 2: Configure the Client Provider
 
-Add TanStack Query and the Analog hydration provider to your application config.
+Add TanStack Query to your application config. Create the `QueryClient` per request so SSR does not share cache state across users or requests.
 
 ```ts
 import {
@@ -51,43 +51,38 @@ import {
 } from '@angular/common/http';
 import type { ApplicationConfig } from '@angular/core';
 import { requestContextInterceptor } from '@analogjs/router';
-import { provideAnalogQuery } from '@analogjs/router/tanstack-query';
 import {
   QueryClient,
   provideTanStackQuery,
-} from '@tanstack/angular-query-experimental';
+} from '@benjavicente/angular-query-experimental';
 
 export const appConfig: ApplicationConfig = {
+export const getAppConfig = (): ApplicationConfig => ({
   providers: [
     provideHttpClient(
       withFetch(),
       withInterceptors([requestContextInterceptor]),
     ),
     provideTanStackQuery(new QueryClient()),
-    provideAnalogQuery(),
   ],
-};
+});
 ```
-
-`provideAnalogQuery()` rehydrates the TanStack Query cache from `TransferState` on the client, preventing duplicate fetches after SSR navigation.
 
 ## Step 3: Configure the Server Provider
 
-Add `provideServerAnalogQuery()` to the server application config so prefetched query state is transferred during hydration.
+Keep your normal Analog server rendering config. The query library handles hydration itself.
 
 ```ts
 import type { ApplicationConfig } from '@angular/core';
 import { mergeApplicationConfig } from '@angular/core';
 import { provideServerRendering } from '@angular/platform-server';
-import { provideServerAnalogQuery } from '@analogjs/router/tanstack-query/server';
 
-import { appConfig } from './app.config';
+import { getAppConfig } from './app.config';
 
-const serverConfig: ApplicationConfig = {
-  providers: [provideServerRendering(), provideServerAnalogQuery()],
-};
-
-export const config = mergeApplicationConfig(appConfig, serverConfig);
+export const getServerConfig = (): ApplicationConfig =>
+  mergeApplicationConfig(getAppConfig(), {
+    providers: [provideServerRendering()],
+  });
 ```
 
 ## Step 4: Query Server Routes
@@ -98,7 +93,7 @@ Use `injectQuery` and `injectMutation` from TanStack Query against Analog server
 import { HttpClient } from '@angular/common/http';
 import { Component, inject } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
-import { injectQuery } from '@tanstack/angular-query-experimental';
+import { injectQuery } from '@benjavicente/angular-query-experimental';
 
 @Component({
   template: `
@@ -122,13 +117,16 @@ export default class QueryPageComponent {
 
 ## Typed Server Routes
 
-Use `serverQueryOptions` and `serverMutationOptions` from `@analogjs/router/tanstack-query` to get end-to-end type safety between server routes and client queries.
+Use `injectServerAction` from `@analogjs/router/server/actions` to get end-to-end type safety between server routes and client queries while still configuring TanStack Query with its own options helpers.
 
 ```ts
 import { HttpClient } from '@angular/common/http';
 import { Component, inject } from '@angular/core';
-import { injectQuery } from '@tanstack/angular-query-experimental';
-import { serverQueryOptions } from '@analogjs/router/tanstack-query';
+import {
+  injectQuery,
+  queryOptions,
+} from '@benjavicente/angular-query-experimental';
+import { injectServerAction } from '@analogjs/router/server/actions';
 import type { route } from '../../server/routes/api/v1/todos.get';
 
 @Component({
@@ -141,14 +139,16 @@ import type { route } from '../../server/routes/api/v1/todos.get';
   `,
 })
 export default class TodosComponent {
-  private readonly http = inject(HttpClient);
+  private readonly fetchTodos =
+    injectServerAction<typeof route>('/api/v1/todos');
 
   readonly todosQuery = injectQuery(() =>
-    serverQueryOptions<typeof route>(this.http, '/api/v1/todos', {
+    queryOptions({
       queryKey: ['todos'],
+      queryFn: () => this.fetchTodos(),
     }),
   );
 }
 ```
 
-Query params, mutation bodies, and response shapes are all inferred from the server route definition with no manual type duplication.
+`injectServerAction` injects `HttpClient` internally and returns a function that accepts an optional `{ params, body }` object. Query params, request bodies, and response shapes are all inferred from the server route definition with no manual type duplication.

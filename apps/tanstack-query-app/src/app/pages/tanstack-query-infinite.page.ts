@@ -1,4 +1,3 @@
-import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -7,15 +6,21 @@ import {
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { injectInfiniteQuery } from '@tanstack/angular-query-experimental';
-import { serverInfiniteQueryOptions } from '@analogjs/router/tanstack-query';
+import {
+  infiniteQueryOptions,
+  injectInfiniteQuery,
+} from '@benjavicente/angular-query-experimental';
+import { injectServerAction } from '@analogjs/router/server/actions';
+import type { InferRouteResult } from '@analogjs/router/server/actions';
 
 import type { route } from '../../server/routes/api/v1/query-comments.get';
 
+type CommentsPage = InferRouteResult<typeof route>;
+
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'analogjs-tanstack-query-infinite-page',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-6">
       <section
@@ -119,38 +124,37 @@ import type { route } from '../../server/routes/api/v1/query-comments.get';
   `,
 })
 export default class TanStackQueryInfinitePageComponent {
-  private readonly http = inject(HttpClient);
   private readonly activatedRoute = inject(ActivatedRoute);
   private readonly queryParamMap = toSignal(this.activatedRoute.queryParamMap, {
     initialValue: this.activatedRoute.snapshot.queryParamMap,
   });
+  private readonly fetchComments = injectServerAction<typeof route>(
+    '/api/v1/query-comments',
+  );
 
   readonly scope = computed(
     () => this.queryParamMap().get('scope') ?? 'default',
   );
 
-  readonly commentsQuery = injectInfiniteQuery(() =>
-    serverInfiniteQueryOptions<
-      typeof route,
-      Error,
-      any,
-      readonly string[],
-      number
-    >(this.http, '/api/v1/query-comments', {
-      queryKey: ['comments', this.scope()] as const,
-      query: ({ pageParam }) => ({
-        scope: this.scope(),
-        cursor: pageParam,
-        limit: 3,
+  readonly commentsQuery = injectInfiniteQuery(() => ({
+    getNextPageParam: (lastPage: CommentsPage) => lastPage.nextCursor,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      this.fetchComments({
+        params: {
+          cursor: pageParam,
+          limit: 3,
+          scope: this.scope(),
+        },
       }),
-      initialPageParam: 0,
-      getNextPageParam: (lastPage) => lastPage.nextCursor,
-      staleTime: 60_000,
-    }),
-  );
+    queryKey: ['comments', this.scope()] as const,
+    staleTime: 60_000,
+  }));
 
   readonly allComments = computed(
-    () => this.commentsQuery.data()?.pages.flatMap((p: any) => p.items) ?? [],
+    () =>
+      this.commentsQuery.data()?.pages.flatMap((p: CommentsPage) => p.items) ??
+      [],
   );
 
   readonly pageCount = computed(
@@ -158,7 +162,8 @@ export default class TanStackQueryInfinitePageComponent {
   );
 
   readonly fetchCount = computed(
-    () => this.commentsQuery.data()?.pages[0]?.fetchCount ?? 0,
+    () =>
+      (this.commentsQuery.data()?.pages[0] as CommentsPage)?.fetchCount ?? 0,
   );
 
   loadMore() {

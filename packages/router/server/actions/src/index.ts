@@ -12,6 +12,7 @@ export type {
   InferRouteBody,
   InferRouteResult,
 } from './define-server-route';
+export { injectServerAction } from './define-server-route';
 export { definePageLoad } from './define-page-load';
 export type {
   PageLoadContext,
